@@ -1,0 +1,47 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch WASM dependencies from original ggtag repo
+        run: |
+          mkdir -p js
+          # Core WASM module
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/js/ggtag.js -o js/ggtag.js
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/js/ggtag.wasm -o js/ggtag.wasm
+          # ggwave audio library
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/js/ggwave.js -o js/ggwave.js
+          # WebUSB serial fallback
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/js/serial.js -o js/serial.js
+          # Assets
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/favicon.ico -o favicon.ico
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/ggtag-180x180.png -o ggtag-180x180.png
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/ggtag-512x512.png -o ggtag-512x512.png
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/manifest.webmanifest -o manifest.webmanifest
+
+      - uses: actions/configure-pages@v4
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

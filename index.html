@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <!-- OG -->
+    <meta property="og:url" content="https://ggtag.io">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="ggtag">
+    <meta property="og:description" content="Programmable e-ink tag">
+    <meta property="og:image" content="https://ggtag.io/ggtag-512x512.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="ggtag">
+    <meta name="twitter:description" content="Programmable e-ink tag">
+    <meta name="twitter:image" content="https://ggtag.io/ggtag-512x512.png">
+    <title>ggtag</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="ggtag-180x180.png">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="manifest" href="manifest.webmanifest">
+    <!-- FontAwesome v5 (free solid) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- App styles -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- WASM & deps -->
+    <script>var exports = {};</script>
+    <script src="js/serial.js"></script>
+    <script src="js/ggwave.js"></script>
+    <script src="js/ggtag.js"></script>
+</head>
+<body>
+    <!-- Top toolbar -->
+    <header class="toolbar" id="toolbar">
+        <div class="toolbar-left">
+            <span class="logo">ggtag</span>
+            <span class="version">v1.1.0</span>
+        </div>
+        <div class="toolbar-center" id="addElementBtns">
+            <button class="tool-btn" data-type="Text" title="Add Text">
+                <i class="fas fa-font"></i><span>Text</span>
+            </button>
+            <button class="tool-btn" data-type="Rect" title="Add Rectangle">
+                <i class="far fa-square"></i><span>Rect</span>
+            </button>
+            <button class="tool-btn" data-type="FillRect" title="Add Filled Rectangle">
+                <i class="fas fa-square"></i><span>Fill</span>
+            </button>
+            <button class="tool-btn" data-type="Circle" title="Add Circle">
+                <i class="far fa-circle"></i><span>Circle</span>
+            </button>
+            <button class="tool-btn" data-type="FillCircle" title="Add Filled Circle">
+                <i class="fas fa-circle"></i><span>Fill</span>
+            </button>
+            <button class="tool-btn" data-type="Line" title="Add Line">
+                <i class="fas fa-minus" style="transform:rotate(-45deg)"></i><span>Line</span>
+            </button>
+            <button class="tool-btn" data-type="QR code" title="Add QR Code">
+                <i class="fas fa-qrcode"></i><span>QR</span>
+            </button>
+            <button class="tool-btn" data-type="Image" title="Add Image">
+                <i class="fas fa-image"></i><span>Image</span>
+            </button>
+            <button class="tool-btn" data-type="Icon" title="Add Icon">
+                <i class="fas fa-icons"></i><span>Icon</span>
+            </button>
+            <button class="tool-btn" data-type="RFID" title="Add RFID">
+                <i class="fas fa-wifi"></i><span>RFID</span>
+            </button>
+            <div class="toolbar-sep"></div>
+            <label class="tool-btn upload-btn" title="Upload Image" id="uploadBtn">
+                <i class="fas fa-upload"></i><span>Upload</span>
+                <input type="file" accept="image/*" id="imageUpload" multiple hidden>
+            </label>
+        </div>
+        <div class="toolbar-right">
+            <button class="action-btn share-btn" id="shareBtn" title="Share">
+                <i class="fas fa-share-alt"></i> Share
+            </button>
+            <button class="action-btn program-btn" id="programBtn" title="Program Tag">
+                <i class="fas fa-bolt"></i> Program
+            </button>
+        </div>
+    </header>
+
+    <!-- Main layout -->
+    <main class="app-layout">
+        <!-- Left sidebar: layers -->
+        <aside class="sidebar" id="layerSidebar">
+            <div class="sidebar-header">
+                <h3>Layers</h3>
+            </div>
+            <div class="layer-list" id="layerList">
+                <!-- Populated by JS -->
+            </div>
+        </aside>
+
+        <!-- Canvas area -->
+        <section class="canvas-area" id="canvasArea">
+            <div class="canvas-wrap" id="canvasWrap">
+                <canvas id="ggCanvas" width="360" height="240"></canvas>
+                <div class="drop-overlay" id="dropOverlay">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Drop image here</span>
+                </div>
+            </div>
+            <!-- Error banner -->
+            <div class="error-banner" id="errorBanner" style="display:none">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span id="errorMsg"></span>
+                <button class="error-close" id="errorClose">&times;</button>
+            </div>
+            <!-- Canvas info -->
+            <div class="canvas-info">
+                <span>360 × 240 · 1-bit</span>
+                <span id="dataSize"></span>
+            </div>
+        </section>
+
+        <!-- Right sidebar: properties -->
+        <aside class="sidebar properties-panel" id="propertiesPanel">
+            <div class="sidebar-header">
+                <h3>Properties</h3>
+            </div>
+            <div class="properties-content" id="propertiesContent">
+                <div class="empty-state">
+                    <i class="fas fa-mouse-pointer"></i>
+                    <p>Select a layer to edit its properties</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Program modal -->
+    <div class="modal-overlay" id="programModal" style="display:none">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Program Tag</h3>
+                <button class="modal-close" id="programModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="program-options">
+                    <button class="program-option" id="progSound">
+                        <i class="fas fa-volume-up"></i>
+                        <span>Sound</span>
+                        <small id="soundDuration">Transmit via audio</small>
+                    </button>
+                    <button class="program-option" id="progSerial">
+                        <i class="fas fa-usb"></i>
+                        <span>Serial</span>
+                        <small>WebSerial / WebUSB</small>
+                    </button>
+                </div>
+                <div class="program-status" id="programStatus" style="display:none">
+                    <div class="spinner"></div>
+                    <span id="programStatusText">Programming...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- App JS -->
+    <script src="js/app.js"></script>
+</body>
+</html>

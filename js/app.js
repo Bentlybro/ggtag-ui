@@ -234,6 +234,9 @@ function imgToBase64Bitmap(img, w, h, dither) {
     tempCanvas.width = canvas.width;
     tempCanvas.height = canvas.height;
     const tempCtx = tempCanvas.getContext('2d');
+    // Fill with white so transparent pixels become white (e-paper background)
+    tempCtx.fillStyle = '#ffffff';
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
     tempCtx.drawImage(img, 0, 0, w, h);
     const imgData = tempCtx.getImageData(0, 0, w, h);
     const rgbaArr = imgData.data;

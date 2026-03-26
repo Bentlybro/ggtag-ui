@@ -265,23 +265,30 @@ document.addEventListener('keydown', (e) => {
 initProgramming();
 
 // ── WASM init + URL import ──
+function onWasmReady() {
+    const params = new URLSearchParams(window.location.search);
+    const input = params.get('i');
+    if (input) {
+        splitCommands(input).forEach(cmd => {
+            const el = parseElement(cmd);
+            if (el) state.elements.push(el);
+        });
+    }
+    if (params.get('d')) Module.ccall('debugEnable', null, ['number'], [1]);
+    if (state.elements.length === 0) {
+        state.elements.push(createElement('Text', { x: 10, y: 10, size: 3, text: 'Hello world' }));
+    }
+    state.selectedIndex = 0;
+    renderLayers();
+    renderProperties();
+    repaint();
+}
+
 if (typeof Module !== 'undefined') {
-    Module['onRuntimeInitialized'] = () => {
-        const params = new URLSearchParams(window.location.search);
-        const input = params.get('i');
-        if (input) {
-            splitCommands(input).forEach(cmd => {
-                const el = parseElement(cmd);
-                if (el) state.elements.push(el);
-            });
-        }
-        if (params.get('d')) Module.ccall('debugEnable', null, ['number'], [1]);
-        if (state.elements.length === 0) {
-            state.elements.push(createElement('Text', { x: 10, y: 10, size: 3, text: 'Hello world' }));
-        }
-        state.selectedIndex = 0;
-        renderLayers();
-        renderProperties();
-        repaint();
-    };
+    // Module might already be initialized (type="module" scripts are deferred)
+    if (Module.calledRun) {
+        onWasmReady();
+    } else {
+        Module['onRuntimeInitialized'] = onWasmReady;
+    }
 }

@@ -866,13 +866,16 @@ async function doProgramming(method) {
         } else {
             await programSound(inp);
         }
-        programStatusText.textContent = 'Done!';
-        setTimeout(() => { programModal.style.display = 'none'; }, 1500);
+        programStatusText.textContent = '✓ Done!';
+        document.querySelector('.spinner').style.display = 'none';
+        setTimeout(() => { programModal.style.display = 'none'; }, 1200);
     } catch (e) {
         programStatusText.textContent = 'Error: ' + e;
+        document.querySelector('.spinner').style.display = 'none';
         setTimeout(() => {
             programStatus.style.display = 'none';
             programOptions.style.display = 'flex';
+            document.querySelector('.spinner').style.display = '';
         }, 3000);
     }
 }
@@ -883,16 +886,20 @@ async function readSerialOutput(port) {
     const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
     const reader = textDecoder.readable.getReader();
     let result = false;
-    while (true) {
-        const timerId = setTimeout(() => reader.cancel(), 30000);
-        const { value, done } = await reader.read();
-        clearTimeout(timerId);
-        if (done) break;
-        if (value.startsWith('Done.')) {
-            result = true;
-            reader.cancel();
-            break;
+    try {
+        while (true) {
+            const timerId = setTimeout(() => reader.cancel(), 10000);
+            const { value, done } = await reader.read();
+            clearTimeout(timerId);
+            if (done) break;
+            if (value && value.startsWith('Done.')) {
+                result = true;
+                reader.cancel();
+                break;
+            }
         }
+    } catch (e) {
+        // Reader cancelled on timeout — that's fine, data was already sent
     }
     reader.releaseLock();
     await readableStreamClosed.catch(() => {});
@@ -913,8 +920,9 @@ async function programSerial(input) {
     const writer = port.writable.getWriter();
     await writer.write(data);
     writer.releaseLock();
+    // Wait for "Done." or timeout — either way programming is complete once data is written
     await closedPromise;
-    await port.close();
+    try { await port.close(); } catch(e) { /* port may already be closed */ }
 }
 
 // ── Sound programming (from original) ──

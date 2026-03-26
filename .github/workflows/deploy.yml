@@ -38,6 +38,7 @@ jobs:
           curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/ggtag-180x180.png -o ggtag-180x180.png
           curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/ggtag-512x512.png -o ggtag-512x512.png
           curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/manifest.webmanifest -o manifest.webmanifest
+          curl -sL https://raw.githubusercontent.com/rgerganov/ggtag/master/docs/ggtag-192x192.png -o ggtag-192x192.png
 
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3

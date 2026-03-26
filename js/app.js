@@ -289,23 +289,40 @@ function getScaledWidthHeight(width, height, maxW, maxH) {
 }
 
 // ── Render ──
+let repaintRunning = false;
+let repaintQueued = false;
+
 async function repaint() {
-    let inp = getInput();
-    inp = await processImages(inp);
-    render(inp);
-    // Update data size
-    const data = encodeInput(inp);
-    const sizeEl = document.getElementById('dataSize');
-    if (data && data.length > 0) {
-        sizeEl.textContent = `${data.length} bytes`;
-        if (data.length > 256) {
-            const dur = Math.ceil(data.length / 33);
-            document.getElementById('soundDuration').textContent = `~${dur}s via audio`;
+    if (repaintRunning) {
+        repaintQueued = true;
+        return;
+    }
+    repaintRunning = true;
+    try {
+        let inp = getInput();
+        inp = await processImages(inp);
+        render(inp);
+        // Update data size
+        const data = encodeInput(inp);
+        const sizeEl = document.getElementById('dataSize');
+        if (data && data.length > 0) {
+            sizeEl.textContent = `${data.length} bytes`;
+            if (data.length > 256) {
+                const dur = Math.ceil(data.length / 33);
+                document.getElementById('soundDuration').textContent = `~${dur}s via audio`;
+            } else {
+                document.getElementById('soundDuration').textContent = 'Transmit via audio';
+            }
         } else {
-            document.getElementById('soundDuration').textContent = 'Transmit via audio';
+            sizeEl.textContent = '';
         }
-    } else {
-        sizeEl.textContent = '';
+    } catch (e) {
+        console.warn('Repaint error:', e);
+    }
+    repaintRunning = false;
+    if (repaintQueued) {
+        repaintQueued = false;
+        repaint();
     }
 }
 
@@ -313,7 +330,13 @@ function render(input) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!input || typeof Module === 'undefined' || !Module.ccall) return;
 
-    const ptr = Module.ccall('render', 'number', ['string', 'number', 'number'], [input, canvas.width, canvas.height]);
+    let ptr;
+    try {
+        ptr = Module.ccall('render', 'number', ['string', 'number', 'number'], [input, canvas.width, canvas.height]);
+    } catch (e) {
+        console.warn('WASM render error:', e);
+        return;
+    }
     const errPtr = Module.ccall('getLastError', 'number', [], []);
     const errStr = Module.UTF8ToString(errPtr);
     if (errStr !== 'OK') {
@@ -706,9 +729,15 @@ function onCanvasDown(e) {
 document.addEventListener('mousemove', onCanvasMove);
 document.addEventListener('touchmove', onCanvasMove, { passive: false });
 
+let lastDragRepaint = 0;
 function onCanvasMove(e) {
     if (!dragState.dragging) return;
     if (e.touches) e.preventDefault();
+
+    const now = performance.now();
+    if (now - lastDragRepaint < 30) return; // ~33fps max during drag
+    lastDragRepaint = now;
+
     const pos = getCanvasPos(e);
     const dx = pos.x - dragState.startX;
     const dy = pos.y - dragState.startY;

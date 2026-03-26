@@ -29,12 +29,16 @@ const TYPE_ICON_STYLE = {
 // ── State ──
 let elements = [];
 let selectedIndex = -1;
-let dragState = { dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 };
+let dragState = { dragging: false, mode: 'move', handle: null, startX: 0, startY: 0, origX: 0, origY: 0, origW: 0, origH: 0, origRadius: 0 };
 let layerDragIndex = -1;
+
+const HANDLE_SIZE = 7; // px, half-size of resize handle
 
 // ── DOM refs ──
 const canvas = document.getElementById('ggCanvas');
 const ctx = canvas.getContext('2d');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const overlayCtx = overlayCanvas.getContext('2d');
 const layerList = document.getElementById('layerList');
 const propertiesContent = document.getElementById('propertiesContent');
 const errorBanner = document.getElementById('errorBanner');
@@ -305,6 +309,7 @@ async function repaint() {
         let inp = getInput();
         inp = await processImages(inp);
         render(inp);
+        drawOverlay();
         // Update data size
         const data = encodeInput(inp);
         const sizeEl = document.getElementById('dataSize');
@@ -380,6 +385,101 @@ function encodeInput(input) {
     return result;
 }
 
+// ── Bounding box + overlay ──
+function getElementBounds(el) {
+    switch (el.type) {
+        case 'Text':
+            // Approximate text bounds: each size level ~(6*size) wide per char, ~(8*size+4) tall
+            const charW = el.size * 6;
+            const textH = el.size * 8 + 4;
+            return { x: el.x, y: el.y, w: (el.text || '').length * charW, h: textH };
+        case 'Rect': case 'FillRect':
+            return { x: el.x, y: el.y, w: el.w, h: el.h };
+        case 'Circle': case 'FillCircle':
+            return { x: el.x - el.radius, y: el.y - el.radius, w: el.radius * 2, h: el.radius * 2 };
+        case 'Line':
+            const lx = Math.min(el.x1, el.x2), ly = Math.min(el.y1, el.y2);
+            return { x: lx, y: ly, w: Math.abs(el.x2 - el.x1) || 4, h: Math.abs(el.y2 - el.y1) || 4 };
+        case 'QR code':
+            // QR size is approximate — depends on content
+            const qrSize = el.pointWidth * 25;
+            return { x: el.x, y: el.y, w: qrSize, h: qrSize };
+        case 'Image':
+            return { x: el.x, y: el.y, w: el.w || 80, h: el.h || 80 };
+        case 'PNGImage': case 'BMPImage':
+            return { x: el.x, y: el.y, w: el.w || 80, h: el.h || 80 };
+        case 'Icon':
+            return { x: el.x, y: el.y, w: el.height, h: el.height };
+        default:
+            return null;
+    }
+}
+
+function drawOverlay() {
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    if (selectedIndex < 0 || selectedIndex >= elements.length) return;
+    const el = elements[selectedIndex];
+    if (!el.visible) return;
+    const bounds = getElementBounds(el);
+    if (!bounds) return;
+
+    const { x, y, w, h } = bounds;
+
+    // Draw bounding box
+    overlayCtx.strokeStyle = '#6c8cff';
+    overlayCtx.lineWidth = 1;
+    overlayCtx.setLineDash([4, 3]);
+    overlayCtx.strokeRect(x - 1, y - 1, w + 2, h + 2);
+    overlayCtx.setLineDash([]);
+
+    // Draw resize handles (corners)
+    if (canResize(el)) {
+        const handles = getHandlePositions(x, y, w, h);
+        overlayCtx.fillStyle = '#6c8cff';
+        overlayCtx.strokeStyle = '#1e2028';
+        overlayCtx.lineWidth = 1;
+        for (const pos of Object.values(handles)) {
+            overlayCtx.fillRect(pos.x - HANDLE_SIZE / 2, pos.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+            overlayCtx.strokeRect(pos.x - HANDLE_SIZE / 2, pos.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+        }
+    }
+}
+
+function canResize(el) {
+    return ['Rect', 'FillRect', 'Circle', 'FillCircle', 'Image', 'PNGImage', 'BMPImage', 'Icon', 'QR code'].includes(el.type);
+}
+
+function getHandlePositions(x, y, w, h) {
+    return {
+        tl: { x: x - 1, y: y - 1 },
+        tr: { x: x + w + 1, y: y - 1 },
+        bl: { x: x - 1, y: y + h + 1 },
+        br: { x: x + w + 1, y: y + h + 1 },
+    };
+}
+
+function hitTestHandle(mx, my) {
+    if (selectedIndex < 0) return null;
+    const el = elements[selectedIndex];
+    if (!el || !canResize(el)) return null;
+    const bounds = getElementBounds(el);
+    if (!bounds) return null;
+    const handles = getHandlePositions(bounds.x, bounds.y, bounds.w, bounds.h);
+    const threshold = HANDLE_SIZE + 2;
+    for (const [name, pos] of Object.entries(handles)) {
+        if (Math.abs(mx - pos.x) <= threshold && Math.abs(my - pos.y) <= threshold) {
+            return name;
+        }
+    }
+    return null;
+}
+
+function getHandleCursor(handle) {
+    if (!handle) return 'crosshair';
+    const map = { tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize' };
+    return map[handle] || 'crosshair';
+}
+
 // ── Layer list rendering ──
 function renderLayers() {
     layerList.innerHTML = '';
@@ -414,6 +514,7 @@ function renderLayers() {
             selectedIndex = i;
             renderLayers();
             renderProperties();
+            drawOverlay();
         });
 
         // Drag reorder
@@ -682,10 +783,10 @@ function escHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// ── Canvas drag to reposition ──
+// ── Canvas interaction (move + resize) ──
 function getCanvasPos(e) {
     if (e.touches && e.touches.length > 0) e = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
+    const rect = overlayCanvas.getBoundingClientRect();
     return {
         x: Math.floor(e.clientX - rect.left),
         y: Math.floor(e.clientY - rect.top)
@@ -695,6 +796,7 @@ function getCanvasPos(e) {
 function getElementXY(el) {
     if (el.type === 'Line') return { x: el.x1, y: el.y1 };
     if (el.type === 'RFID') return null;
+    if (el.type === 'Circle' || el.type === 'FillCircle') return { x: el.x, y: el.y };
     return { x: el.x, y: el.y };
 }
 
@@ -711,26 +813,93 @@ function setElementXY(el, x, y) {
     }
 }
 
-canvas.addEventListener('mousedown', onCanvasDown);
-canvas.addEventListener('touchstart', onCanvasDown, { passive: false });
+function applyResize(el, handle, dx, dy) {
+    switch (el.type) {
+        case 'Rect': case 'FillRect':
+        case 'Image': case 'PNGImage': case 'BMPImage': {
+            let { x, y, w, h } = { x: dragState.origX, y: dragState.origY, w: dragState.origW, h: dragState.origH };
+            if (handle === 'tl') { x += dx; y += dy; w -= dx; h -= dy; }
+            else if (handle === 'tr') { y += dy; w += dx; h -= dy; }
+            else if (handle === 'bl') { x += dx; w -= dx; h += dy; }
+            else if (handle === 'br') { w += dx; h += dy; }
+            el.x = x; el.y = y;
+            el.w = Math.max(4, w); el.h = Math.max(4, h);
+            break;
+        }
+        case 'Circle': case 'FillCircle': {
+            const dist = Math.max(4, dragState.origRadius + Math.max(dx, dy));
+            el.radius = Math.round(dist);
+            break;
+        }
+        case 'Icon': {
+            let h = dragState.origH;
+            if (handle === 'tl') { h -= Math.max(dx, dy); }
+            else if (handle === 'br') { h += Math.max(dx, dy); }
+            else if (handle === 'tr') { h += Math.max(dx, -dy); }
+            else if (handle === 'bl') { h += Math.max(-dx, dy); }
+            el.height = Math.max(8, Math.round(h));
+            break;
+        }
+        case 'QR code': {
+            let pw = dragState.origW; // we store pointWidth in origW for QR
+            if (handle === 'br' || handle === 'tr') pw += Math.round(dx / 10);
+            else pw -= Math.round(dx / 10);
+            el.pointWidth = Math.max(1, Math.min(8, pw));
+            break;
+        }
+    }
+}
+
+overlayCanvas.addEventListener('mousedown', onCanvasDown);
+overlayCanvas.addEventListener('touchstart', onCanvasDown, { passive: false });
 
 function onCanvasDown(e) {
     if (e.touches) e.preventDefault();
+    const pos = getCanvasPos(e);
+
+    // Check if hitting a resize handle first
+    if (selectedIndex >= 0 && selectedIndex < elements.length) {
+        const handle = hitTestHandle(pos.x, pos.y);
+        if (handle) {
+            const el = elements[selectedIndex];
+            const bounds = getElementBounds(el);
+            dragState = {
+                dragging: true, mode: 'resize', handle,
+                startX: pos.x, startY: pos.y,
+                origX: el.x !== undefined ? el.x : (el.x1 || 0),
+                origY: el.y !== undefined ? el.y : (el.y1 || 0),
+                origW: el.type === 'QR code' ? el.pointWidth : (el.w || el.radius || el.height || 0),
+                origH: el.h || el.radius || el.height || 0,
+                origRadius: el.radius || 0,
+            };
+            return;
+        }
+    }
+
+    // Otherwise, move mode
     if (selectedIndex < 0 || selectedIndex >= elements.length) return;
     const el = elements[selectedIndex];
-    const pos = getCanvasPos(e);
     const xy = getElementXY(el);
     if (!xy) return;
 
     dragState = {
-        dragging: true,
+        dragging: true, mode: 'move', handle: null,
         startX: pos.x, startY: pos.y,
-        origX: xy.x, origY: xy.y
+        origX: xy.x, origY: xy.y,
+        origW: 0, origH: 0, origRadius: 0,
     };
 }
 
 document.addEventListener('mousemove', onCanvasMove);
 document.addEventListener('touchmove', onCanvasMove, { passive: false });
+
+// Update cursor on hover
+overlayCanvas.addEventListener('mousemove', (e) => {
+    if (dragState.dragging) return;
+    const pos = getCanvasPos(e);
+    const handle = hitTestHandle(pos.x, pos.y);
+    overlayCanvas.style.cursor = getHandleCursor(handle);
+});
 
 let lastDragRepaint = 0;
 function onCanvasMove(e) {
@@ -738,15 +907,23 @@ function onCanvasMove(e) {
     if (e.touches) e.preventDefault();
 
     const now = performance.now();
-    if (now - lastDragRepaint < 30) return; // ~33fps max during drag
+    if (now - lastDragRepaint < 30) return;
     lastDragRepaint = now;
 
     const pos = getCanvasPos(e);
     const dx = pos.x - dragState.startX;
     const dy = pos.y - dragState.startY;
+
+    if (dragState.mode === 'resize') {
+        applyResize(elements[selectedIndex], dragState.handle, dx, dy);
+        renderProperties();
+        repaint();
+        return;
+    }
+
+    // Move mode
     let nx = dragState.origX + dx;
     let ny = dragState.origY + dy;
-    // Wrap
     if (nx > canvas.width) nx %= canvas.width;
     else if (nx < 0) nx = canvas.width + nx;
     if (ny > canvas.height) ny %= canvas.height;
@@ -761,13 +938,16 @@ document.addEventListener('mouseup', onCanvasUp);
 document.addEventListener('touchend', onCanvasUp);
 
 function onCanvasUp() {
-    dragState.dragging = false;
+    if (dragState.dragging) {
+        dragState.dragging = false;
+        overlayCanvas.style.cursor = 'crosshair';
+    }
 }
 
 // Prevent scroll on canvas touch
 ['touchstart', 'touchend', 'touchmove'].forEach(evt => {
     document.body.addEventListener(evt, (e) => {
-        if (e.target === canvas) e.preventDefault();
+        if (e.target === overlayCanvas) e.preventDefault();
     }, { passive: false });
 });
 
@@ -1064,5 +1244,6 @@ document.addEventListener('keydown', (e) => {
         selectedIndex = -1;
         renderLayers();
         renderProperties();
+        drawOverlay();
     }
 });

@@ -361,8 +361,17 @@ body {
 
 #ggCanvas {
     display: block;
-    cursor: crosshair;
     image-rendering: pixelated;
+}
+
+#overlayCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 360px;
+    height: 240px;
+    cursor: crosshair;
+    pointer-events: auto;
 }
 
 .drop-overlay {
